@@ -708,9 +708,6 @@
       isCountingDown = false;
     }
 
-    triggerFlash(remoteFlash);
-    playShutterSound();
-
     if (dataChannel && dataChannel.readyState === "open") {
       dataChannel.send(JSON.stringify({ type: "snap", id: Date.now() }));
     } else {
