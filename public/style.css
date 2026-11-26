@@ -237,6 +237,12 @@ html, body {
   cursor: pointer;
 }
 
+.top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .room-pill {
   letter-spacing: 0.08em;
   font-size: 12px;

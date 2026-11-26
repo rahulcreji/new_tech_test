@@ -36,6 +36,7 @@
   const remoteStatus = document.getElementById("remote-status");
   const remoteRoomBadge = document.getElementById("remote-room-badge");
   const remoteExitBtn = document.getElementById("remote-exit-btn");
+  const remoteRotateBtn = document.getElementById("remote-rotate-btn");
   const remoteSnapBtn = document.getElementById("remote-snap-btn");
   const timerBtn = document.getElementById("timer-btn");
   const remoteGalleryBtn = document.getElementById("remote-gallery-btn");
@@ -74,6 +75,8 @@
   let capturedPhotos = []; // [{ url, filename }]
   let selectedPhotoIndex = 0;
   let incomingPhotoChunks = null;
+  let remoteRotation = 0; // 0, 90, 180, 270
+  let captureRotationAngle = 0;
   let cameraZoomState = { hardware: false, min: 1, max: 5, step: 0.1, value: 1 };
 
   // Helpers
@@ -407,6 +410,8 @@
           captureAndSendPhoto();
         } else if (msg.type === "zoom") {
           applyCameraZoom(msg.value);
+        } else if (msg.type === "rotate") {
+          captureRotationAngle = Number(msg.angle) || 0;
         }
       } catch {
         // Ignore malformed messages
@@ -442,6 +447,8 @@
       captureAndSendPhoto();
     } else if (msg.type === "zoom") {
       applyCameraZoom(msg.value);
+    } else if (msg.type === "rotate") {
+      captureRotationAngle = Number(msg.angle) || 0;
     }
   }
 
@@ -488,6 +495,10 @@
 
     if (!fullBlob) return;
 
+    if (captureRotationAngle % 360 !== 0) {
+      fullBlob = await rotateImageBlob(fullBlob, captureRotationAngle);
+    }
+
     const fullUrl = URL.createObjectURL(fullBlob);
     updateLastPhoto(fullUrl, filename);
     triggerDownload(fullUrl, filename);
@@ -496,6 +507,25 @@
     // Send a compressed preview copy over DataChannel so wife's phone can see & save it
     if (dataChannel && dataChannel.readyState === "open") {
       sendPhotoOverDataChannel(fullBlob, filename);
+    }
+  }
+
+  async function rotateImageBlob(blob, angle) {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const rad = (angle * Math.PI) / 180;
+      const swap = angle % 180 !== 0;
+      const canvas = document.createElement("canvas");
+      canvas.width = swap ? bitmap.height : bitmap.width;
+      canvas.height = swap ? bitmap.width : bitmap.height;
+      const ctx = canvas.getContext("2d");
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rad);
+      ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+      bitmap.close();
+      return await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.94));
+    } catch {
+      return blob;
     }
   }
 
@@ -562,6 +592,25 @@
 
   let remoteZoomHardware = true;
 
+  function applyRemoteVideoTransform() {
+    const scale = !remoteZoomHardware ? Number(zoomSlider.value) || 1 : 1;
+    if (remoteRotation % 180 !== 0) {
+      remoteVideo.style.inset = "auto";
+      remoteVideo.style.top = "50%";
+      remoteVideo.style.left = "50%";
+      remoteVideo.style.width = "100dvh";
+      remoteVideo.style.height = "100vw";
+      remoteVideo.style.transform = `translate(-50%, -50%) rotate(${remoteRotation}deg) scale(${scale})`;
+    } else {
+      remoteVideo.style.top = "";
+      remoteVideo.style.left = "";
+      remoteVideo.style.inset = "0";
+      remoteVideo.style.width = "100%";
+      remoteVideo.style.height = "100%";
+      remoteVideo.style.transform = `rotate(${remoteRotation}deg) scale(${scale})`;
+    }
+  }
+
   function applyRemoteZoomCaps(caps) {
     remoteZoomHardware = Boolean(caps.hardware);
     zoomSlider.min = String(caps.min ?? 1);
@@ -570,7 +619,7 @@
     const val = Number(caps.value ?? caps.min ?? 1);
     zoomSlider.value = String(val);
     zoomLabel.textContent = `${val.toFixed(1)}×`;
-    remoteVideo.style.transform = !remoteZoomHardware ? `scale(${val})` : "none";
+    applyRemoteVideoTransform();
   }
 
   function sendRemoteZoom(val) {
@@ -579,9 +628,7 @@
     const clamped = Math.min(max, Math.max(min, Number(val)));
     zoomSlider.value = String(clamped);
     zoomLabel.textContent = `${clamped.toFixed(1)}×`;
-    if (!remoteZoomHardware) {
-      remoteVideo.style.transform = `scale(${clamped})`;
-    }
+    applyRemoteVideoTransform();
     const payload = { type: "zoom", value: clamped };
     if (dataChannel && dataChannel.readyState === "open") {
       dataChannel.send(JSON.stringify(payload));
@@ -763,6 +810,18 @@
   startRemoteBtn.addEventListener("click", () => enterRole("remote"));
   cameraExitBtn.addEventListener("click", exitToLobby);
   remoteExitBtn.addEventListener("click", exitToLobby);
+
+  remoteRotateBtn.addEventListener("click", () => {
+    remoteRotation = (remoteRotation + 90) % 360;
+    applyRemoteVideoTransform();
+    const payload = { type: "rotate", angle: remoteRotation };
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify(payload));
+    } else {
+      sendSignal(payload);
+    }
+    showToast(`Rotated ${remoteRotation}°`);
+  });
 
   flipCameraBtn.addEventListener("click", async () => {
     facingMode = facingMode === "environment" ? "user" : "environment";
