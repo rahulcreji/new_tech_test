@@ -7,7 +7,7 @@
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0d12" />
   <title>Live Shutter — Remote Camera</title>
-  <link rel="stylesheet" href="/style.css?v=5" />
+  <link rel="stylesheet" href="/style.css?v=6" />
 </head>
 
 <body>
@@ -61,11 +61,7 @@
     </header>
 
     <footer class="bottom-bar camera-controls">
-      <button id="camera-gallery-btn" type="button" class="thumb-btn empty" title="View captured photos">
-        <img id="camera-thumb" alt="Last captured photo" />
-        <span class="thumb-placeholder">🖼️</span>
-        <span id="camera-count-badge" class="count-badge hidden">0</span>
-      </button>
+      <div class="spacer-circle" aria-hidden="true"></div>
 
       <button id="camera-local-snap-btn" type="button" class="shutter-btn small" title="Take photo locally">
         <span class="shutter-inner"></span>
@@ -97,11 +93,16 @@
     </header>
 
     <div class="remote-bottom-stack">
-      <div id="zoom-bar" class="zoom-bar">
-        <button id="zoom-out-btn" type="button" class="zoom-step-btn" title="Zoom out (-)">−</button>
-        <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1" aria-label="Zoom level" />
-        <button id="zoom-in-btn" type="button" class="zoom-step-btn" title="Zoom in (+)">+</button>
-        <span id="zoom-label" class="zoom-label">1.0×</span>
+      <div class="remote-action-row">
+        <div id="zoom-bar" class="zoom-bar">
+          <button id="zoom-out-btn" type="button" class="zoom-step-btn" title="Zoom out (-)">−</button>
+          <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1" aria-label="Zoom level" />
+          <button id="zoom-in-btn" type="button" class="zoom-step-btn" title="Zoom in (+)">+</button>
+          <span id="zoom-label" class="zoom-label">1.0×</span>
+        </div>
+        <button id="remote-submit-btn" type="button" class="submit-pill-btn hidden" title="Submit captured photos to Claude">
+          ✨ Submit (<span id="remote-submit-count">0</span>)
+        </button>
       </div>
 
       <footer class="bottom-bar remote-controls">
@@ -127,21 +128,58 @@
       <div class="modal-header">
         <span id="modal-counter" class="modal-counter">1 / 1</span>
         <div class="modal-actions">
-          <button id="modal-add-btn" type="button" class="btn-secondary btn-compact" title="Add another image">+ Add Image</button>
+          <button id="modal-add-btn" type="button" class="btn-secondary btn-compact" title="Add another image">+ Add</button>
+          <button id="modal-crop-btn" type="button" class="icon-btn" title="Crop photo" aria-label="Crop photo">✂</button>
           <button id="modal-rotate-btn" type="button" class="icon-btn" title="Rotate photo 90°" aria-label="Rotate photo">⟳</button>
           <button id="modal-download-all-btn" type="button" class="btn-secondary btn-compact" title="Download all photos">⬇ All</button>
           <a id="modal-download-btn" class="icon-btn primary" download="live-shutter.jpg" title="Download photo" aria-label="Download photo">⬇</a>
+          <button id="modal-submit-btn" type="button" class="btn-primary btn-compact" title="Ask Claude">✨ Submit</button>
           <button id="modal-close-btn" type="button" class="icon-btn" title="Cancel / Close" aria-label="Close">✕</button>
         </div>
       </div>
-      <img id="modal-image" alt="Captured photo preview" />
+
+      <div id="crop-stage" class="crop-stage">
+        <img id="modal-image" alt="Captured photo preview" />
+        <div id="crop-overlay" class="crop-overlay hidden">
+          <div id="crop-box" class="crop-box"></div>
+        </div>
+      </div>
+
+      <div id="crop-bar" class="crop-bar hidden">
+        <span class="crop-hint">Drag on image to select crop area</span>
+        <div class="modal-actions">
+          <button id="crop-apply-btn" type="button" class="btn-primary btn-compact">✓ Apply Crop</button>
+          <button id="crop-cancel-btn" type="button" class="btn-secondary btn-compact">Cancel</button>
+        </div>
+      </div>
+
       <div id="modal-strip" class="modal-strip"></div>
+    </div>
+  </div>
+
+  <!-- CLAUDE ANSWER MODAL -->
+  <div id="answer-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content answer-card">
+      <div class="modal-header">
+        <span class="answer-title">✨ Claude Answer</span>
+        <span id="answer-model" class="modal-counter"></span>
+      </div>
+      <div id="answer-loading" class="answer-loading hidden">
+        <div class="spinner"></div>
+        <p>Analyzing images with Claude &amp; web search…</p>
+      </div>
+      <div id="answer-body" class="answer-body"></div>
+      <div class="answer-footer">
+        <button id="answer-back-btn" type="button" class="btn-secondary btn-compact">Back</button>
+        <button id="answer-next-btn" type="button" class="btn-primary btn-compact">Next Question →</button>
+      </div>
     </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/app.js?v=5"></script>
+  <script src="/app.js?v=6"></script>
 </body>
 
 </html>

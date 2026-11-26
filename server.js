@@ -3,10 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import Anthropic from "@anthropic-ai/sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, "public");
 const PORT = Number(process.env.PORT) || 3000;
+
+// Load .env locally if present (Railway injects env vars automatically)
+const envPath = path.join(__dirname, ".env");
+if (!process.env.ANTHROPIC_API_KEY && fs.existsSync(envPath)) {
+  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.+)\s*$/);
+    if (match && !process.env[match[1]]) {
+      process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
+    }
+  }
+}
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -19,11 +32,134 @@ const MIME_TYPES = {
   ".ico": "image/x-icon",
 };
 
+const DEFAULT_PROMPT =
+  "Based on the images find the answer for the question. " +
+  "This is for a Claude certificate course for students. " +
+  "Provide the exact answer clearly first, followed by a concise explanation. " +
+  "Use web search if needed to verify up-to-date Anthropic/Claude API, SDK, or course details.";
+
+function readJsonBody(req, maxBytes = 25 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on("data", (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error("Payload too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      } catch {
+        reject(new Error("Invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function handleAskClaude(req, res) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "ANTHROPIC_API_KEY is not configured on the server." }));
+    return;
+  }
+
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: err.message }));
+    return;
+  }
+
+  const images = Array.isArray(body.images) ? body.images : [];
+  if (images.length === 0) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "No images provided." }));
+    return;
+  }
+
+  const userPrompt = (body.prompt || "").trim() || DEFAULT_PROMPT;
+  const contentBlocks = images.map((img) => ({
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: img.mediaType || "image/jpeg",
+      data: img.data,
+    },
+  }));
+  contentBlocks.push({ type: "text", text: userPrompt });
+
+  const client = new Anthropic({ apiKey });
+  const candidateModels = ["claude-sonnet-5-5", "claude-sonnet-4-5", "claude-3-7-sonnet-latest"];
+
+  let response = null;
+  let lastError = null;
+  for (const model of candidateModels) {
+    try {
+      response = await client.messages.create({
+        model,
+        max_tokens: 2048,
+        tools: [
+          {
+            type: "web_search_20250305",
+            name: "web_search",
+            max_uses: 5,
+          },
+        ],
+        messages: [{ role: "user", content: contentBlocks }],
+      });
+      break;
+    } catch (err) {
+      lastError = err;
+      // Retry with fallback model only if model is not found
+      if (err?.status !== 404) {
+        break;
+      }
+    }
+  }
+
+  if (!response) {
+    res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: lastError?.message || "Claude request failed." }));
+    return;
+  }
+
+  const textParts = [];
+  for (const block of response.content || []) {
+    if (block.type === "text" && block.text) {
+      textParts.push(block.text);
+    }
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(
+    JSON.stringify({
+      answer: textParts.join("\n\n") || "No text answer returned.",
+      model: response.model,
+    })
+  );
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  let reqPath = url.pathname === "/" ? "/index.html" : url.pathname;
 
-  // Prevent directory traversal
+  if (req.method === "POST" && url.pathname === "/api/ask") {
+    handleAskClaude(req, res).catch((err) => {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message || "Internal server error" }));
+    });
+    return;
+  }
+
+  let reqPath = url.pathname === "/" ? "/index.html" : url.pathname;
   const safePath = path.normalize(reqPath).replace(/^(\.\.[/\\])+/, "");
   const filePath = path.join(PUBLIC_DIR, safePath);
 
@@ -89,7 +225,6 @@ wss.on("connection", (ws, roomCode, role) => {
   }
   const room = rooms.get(roomCode);
 
-  // Replace any stale camera socket in this room
   if (role === "camera") {
     for (const existing of room) {
       if (existing._role === "camera") {
@@ -154,4 +289,3 @@ wss.on("connection", (ws, roomCode, role) => {
 server.listen(PORT, () => {
   console.log(`Live Shutter server listening on port ${PORT}`);
 });
-

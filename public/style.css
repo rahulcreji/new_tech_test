@@ -661,3 +661,145 @@ html, body {
   display: none;
 }
 
+.spacer-circle {
+  width: 52px;
+  height: 52px;
+}
+
+.remote-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  max-width: 520px;
+  flex-wrap: wrap;
+}
+
+.remote-action-row .zoom-bar {
+  width: auto;
+  flex: 1;
+  min-width: 210px;
+}
+
+.submit-pill-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 16px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(79, 140, 255, 0.45);
+}
+
+.submit-pill-btn.hidden {
+  display: none;
+}
+
+/* Crop UI */
+.crop-stage {
+  position: relative;
+  display: inline-block;
+  align-self: center;
+  max-width: 100%;
+  user-select: none;
+}
+
+.crop-stage #modal-image {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 60dvh;
+  object-fit: contain;
+  border-radius: 14px;
+  background: #000;
+}
+
+.crop-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 14px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.crop-overlay.hidden,
+.crop-bar.hidden {
+  display: none;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  background: rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+
+.crop-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.crop-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Claude Answer Modal */
+.answer-card {
+  background: var(--surface);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 18px;
+  max-width: 560px;
+}
+
+.answer-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.answer-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 12px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.answer-loading.hidden {
+  display: none;
+}
+
+.answer-body {
+  max-height: 58dvh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.answer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+

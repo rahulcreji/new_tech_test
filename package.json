@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Live camera viewer and remote shutter web app",
+  "description": "Live camera viewer, remote shutter, and Claude Q&A web app",
   "scripts": {
     "start": "node server.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "*",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -24,8 +24,6 @@
   const cameraExitBtn = document.getElementById("camera-exit-btn");
   const cameraLocalSnapBtn = document.getElementById("camera-local-snap-btn");
   const flipCameraBtn = document.getElementById("flip-camera-btn");
-  const cameraGalleryBtn = document.getElementById("camera-gallery-btn");
-  const cameraThumb = document.getElementById("camera-thumb");
 
   const remoteVideo = document.getElementById("remote-video");
   const remoteWaitingOverlay = document.getElementById("remote-waiting-overlay");
@@ -46,18 +44,33 @@
   const zoomOutBtn = document.getElementById("zoom-out-btn");
   const zoomLabel = document.getElementById("zoom-label");
 
-  const cameraCountBadge = document.getElementById("camera-count-badge");
   const remoteCountBadge = document.getElementById("remote-count-badge");
+  const remoteSubmitBtn = document.getElementById("remote-submit-btn");
+  const remoteSubmitCount = document.getElementById("remote-submit-count");
 
   const photoModal = document.getElementById("photo-modal");
   const modalCounter = document.getElementById("modal-counter");
   const modalAddBtn = document.getElementById("modal-add-btn");
+  const modalCropBtn = document.getElementById("modal-crop-btn");
   const modalRotateBtn = document.getElementById("modal-rotate-btn");
   const modalDownloadAllBtn = document.getElementById("modal-download-all-btn");
+  const modalSubmitBtn = document.getElementById("modal-submit-btn");
   const modalImage = document.getElementById("modal-image");
+  const cropOverlay = document.getElementById("crop-overlay");
+  const cropBox = document.getElementById("crop-box");
+  const cropBar = document.getElementById("crop-bar");
+  const cropApplyBtn = document.getElementById("crop-apply-btn");
+  const cropCancelBtn = document.getElementById("crop-cancel-btn");
   const modalStrip = document.getElementById("modal-strip");
   const modalDownloadBtn = document.getElementById("modal-download-btn");
   const modalCloseBtn = document.getElementById("modal-close-btn");
+
+  const answerModal = document.getElementById("answer-modal");
+  const answerModel = document.getElementById("answer-model");
+  const answerLoading = document.getElementById("answer-loading");
+  const answerBody = document.getElementById("answer-body");
+  const answerBackBtn = document.getElementById("answer-back-btn");
+  const answerNextBtn = document.getElementById("answer-next-btn");
   const toastEl = document.getElementById("toast");
 
   // State
@@ -162,19 +175,33 @@
     capturedPhotos.push({ url: blobUrl, filename });
     selectedPhotoIndex = capturedPhotos.length - 1;
 
-    cameraThumb.src = blobUrl;
-    cameraGalleryBtn.classList.remove("empty");
-    cameraCountBadge.textContent = String(capturedPhotos.length);
-    cameraCountBadge.classList.remove("hidden");
-
     remoteThumb.src = blobUrl;
     remoteGalleryBtn.classList.remove("empty");
     remoteCountBadge.textContent = String(capturedPhotos.length);
     remoteCountBadge.classList.remove("hidden");
 
+    remoteSubmitCount.textContent = String(capturedPhotos.length);
+    remoteSubmitBtn.classList.remove("hidden");
+
     if (!photoModal.classList.contains("hidden")) {
       renderModalPhoto();
     }
+  }
+
+  function clearCapturedPhotos() {
+    for (const item of capturedPhotos) {
+      URL.revokeObjectURL(item.url);
+    }
+    capturedPhotos = [];
+    selectedPhotoIndex = 0;
+    remoteThumb.src = "";
+    remoteGalleryBtn.classList.add("empty");
+    remoteCountBadge.textContent = "0";
+    remoteCountBadge.classList.add("hidden");
+    remoteSubmitCount.textContent = "0";
+    remoteSubmitBtn.classList.add("hidden");
+    photoModal.classList.add("hidden");
+    answerModal.classList.add("hidden");
   }
 
   function triggerDownload(blobUrl, filename) {
@@ -851,14 +878,188 @@
 
   function openPhotoModal() {
     if (capturedPhotos.length === 0) return;
+    exitCropMode();
     selectedPhotoIndex = capturedPhotos.length - 1;
     renderModalPhoto();
     photoModal.classList.remove("hidden");
   }
 
-  cameraGalleryBtn.addEventListener("click", openPhotoModal);
+  // Interactive Crop on Remote
+  let cropRect = null; // { x, y, w, h } in overlay CSS pixels
+  let cropDragStart = null;
+
+  function renderCropBox() {
+    if (!cropRect) {
+      cropBox.style.display = "none";
+      return;
+    }
+    cropBox.style.display = "block";
+    cropBox.style.left = `${cropRect.x}px`;
+    cropBox.style.top = `${cropRect.y}px`;
+    cropBox.style.width = `${cropRect.w}px`;
+    cropBox.style.height = `${cropRect.h}px`;
+  }
+
+  function startCropMode() {
+    if (!capturedPhotos[selectedPhotoIndex]) return;
+    cropOverlay.classList.remove("hidden");
+    cropBar.classList.remove("hidden");
+    const rect = cropOverlay.getBoundingClientRect();
+    cropRect = {
+      x: rect.width * 0.1,
+      y: rect.height * 0.1,
+      w: rect.width * 0.8,
+      h: rect.height * 0.8,
+    };
+    renderCropBox();
+  }
+
+  function exitCropMode() {
+    cropOverlay.classList.add("hidden");
+    cropBar.classList.add("hidden");
+    cropRect = null;
+    cropDragStart = null;
+  }
+
+  cropOverlay.addEventListener("pointerdown", (e) => {
+    const bounds = cropOverlay.getBoundingClientRect();
+    const x = Math.max(0, Math.min(bounds.width, e.clientX - bounds.left));
+    const y = Math.max(0, Math.min(bounds.height, e.clientY - bounds.top));
+    cropDragStart = { x, y };
+    cropRect = { x, y, w: 0, h: 0 };
+    cropOverlay.setPointerCapture(e.pointerId);
+    renderCropBox();
+  });
+
+  cropOverlay.addEventListener("pointermove", (e) => {
+    if (!cropDragStart) return;
+    const bounds = cropOverlay.getBoundingClientRect();
+    const cx = Math.max(0, Math.min(bounds.width, e.clientX - bounds.left));
+    const cy = Math.max(0, Math.min(bounds.height, e.clientY - bounds.top));
+    cropRect = {
+      x: Math.min(cropDragStart.x, cx),
+      y: Math.min(cropDragStart.y, cy),
+      w: Math.abs(cx - cropDragStart.x),
+      h: Math.abs(cy - cropDragStart.y),
+    };
+    renderCropBox();
+  });
+
+  cropOverlay.addEventListener("pointerup", () => {
+    cropDragStart = null;
+  });
+
+  cropCancelBtn.addEventListener("click", exitCropMode);
+
+  cropApplyBtn.addEventListener("click", async () => {
+    const item = capturedPhotos[selectedPhotoIndex];
+    if (!item || !cropRect || cropRect.w < 12 || cropRect.h < 12) {
+      showToast("Drag on image to select crop area");
+      return;
+    }
+    try {
+      const bounds = cropOverlay.getBoundingClientRect();
+      const resp = await fetch(item.url);
+      const blob = await resp.blob();
+      const bitmap = await createImageBitmap(blob);
+
+      const scaleX = bitmap.width / bounds.width;
+      const scaleY = bitmap.height / bounds.height;
+      const sx = Math.round(cropRect.x * scaleX);
+      const sy = Math.round(cropRect.y * scaleY);
+      const sw = Math.max(1, Math.round(cropRect.w * scaleX));
+      const sh = Math.max(1, Math.round(cropRect.h * scaleY));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = sw;
+      canvas.height = sh;
+      canvas.getContext("2d").drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+      bitmap.close();
+
+      const croppedBlob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.94));
+      const newUrl = URL.createObjectURL(croppedBlob);
+      URL.revokeObjectURL(item.url);
+      item.url = newUrl;
+      if (selectedPhotoIndex === capturedPhotos.length - 1) {
+        remoteThumb.src = newUrl;
+      }
+      exitCropMode();
+      renderModalPhoto();
+      showToast("Cropped!");
+    } catch {
+      showToast("Could not crop image");
+    }
+  });
+
+  async function blobUrlToBase64(url) {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function submitPhotosToClaude() {
+    if (capturedPhotos.length === 0) {
+      showToast("Capture 1 or more photos first");
+      return;
+    }
+    photoModal.classList.add("hidden");
+    answerModal.classList.remove("hidden");
+    answerLoading.classList.remove("hidden");
+    answerBody.textContent = "";
+    answerModel.textContent = "";
+    answerNextBtn.disabled = true;
+
+    try {
+      const images = await Promise.all(
+        capturedPhotos.map(async (item) => ({
+          data: await blobUrlToBase64(item.url),
+          mediaType: "image/jpeg",
+        }))
+      );
+
+      const resp = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          images,
+          prompt: "Based on the images find the answer for the question",
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.error || "Failed to get answer from Claude");
+      }
+      answerModel.textContent = data.model || "";
+      answerBody.textContent = data.answer || "No answer returned.";
+    } catch (err) {
+      answerBody.textContent = `Error: ${err.message}`;
+    } finally {
+      answerLoading.classList.add("hidden");
+      answerNextBtn.disabled = false;
+    }
+  }
+
   remoteGalleryBtn.addEventListener("click", openPhotoModal);
+  remoteSubmitBtn.addEventListener("click", submitPhotosToClaude);
+  modalSubmitBtn.addEventListener("click", submitPhotosToClaude);
+  modalCropBtn.addEventListener("click", startCropMode);
+  answerBackBtn.addEventListener("click", () => answerModal.classList.add("hidden"));
+  answerNextBtn.addEventListener("click", () => {
+    clearCapturedPhotos();
+    showToast("Cleared previous photos — ready for next question!");
+  });
+
   modalAddBtn.addEventListener("click", () => {
+    exitCropMode();
     photoModal.classList.add("hidden");
     showToast("Ready to capture next image");
   });
@@ -874,7 +1075,6 @@
       item.url = newUrl;
       if (selectedPhotoIndex === capturedPhotos.length - 1) {
         remoteThumb.src = newUrl;
-        cameraThumb.src = newUrl;
       }
       renderModalPhoto();
     } catch {
@@ -889,8 +1089,12 @@
       await new Promise((r) => setTimeout(r, 180));
     }
   });
-  modalCloseBtn.addEventListener("click", () => photoModal.classList.add("hidden"));
+  modalCloseBtn.addEventListener("click", () => {
+    exitCropMode();
+    photoModal.classList.add("hidden");
+  });
   photoModal.querySelector(".modal-backdrop").addEventListener("click", () => {
+    exitCropMode();
     photoModal.classList.add("hidden");
   });
 
