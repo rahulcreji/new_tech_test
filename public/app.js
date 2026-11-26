@@ -52,6 +52,7 @@
   const photoModal = document.getElementById("photo-modal");
   const modalCounter = document.getElementById("modal-counter");
   const modalAddBtn = document.getElementById("modal-add-btn");
+  const modalRotateBtn = document.getElementById("modal-rotate-btn");
   const modalDownloadAllBtn = document.getElementById("modal-download-all-btn");
   const modalImage = document.getElementById("modal-image");
   const modalStrip = document.getElementById("modal-strip");
@@ -863,6 +864,25 @@
   modalAddBtn.addEventListener("click", () => {
     photoModal.classList.add("hidden");
     showToast("Ready to capture next image");
+  });
+  modalRotateBtn.addEventListener("click", async () => {
+    const item = capturedPhotos[selectedPhotoIndex];
+    if (!item) return;
+    try {
+      const resp = await fetch(item.url);
+      const blob = await resp.blob();
+      const rotatedBlob = await rotateImageBlob(blob, 90);
+      const newUrl = URL.createObjectURL(rotatedBlob);
+      URL.revokeObjectURL(item.url);
+      item.url = newUrl;
+      if (selectedPhotoIndex === capturedPhotos.length - 1) {
+        remoteThumb.src = newUrl;
+        cameraThumb.src = newUrl;
+      }
+      renderModalPhoto();
+    } catch {
+      showToast("Could not rotate photo");
+    }
   });
   modalDownloadAllBtn.addEventListener("click", async () => {
     if (currentRole !== "remote" || capturedPhotos.length === 0) return;
