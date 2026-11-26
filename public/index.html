@@ -7,7 +7,7 @@
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0b0d12" />
   <title>Live Shutter — Remote Camera</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=5" />
 </head>
 
 <body>
@@ -50,7 +50,6 @@
   <!-- CAMERA VIEW (Pixel 8) -->
   <section id="camera-view" class="view stage-view">
     <video id="camera-video" autoplay playsinline muted></video>
-    <div id="camera-flash" class="flash-overlay"></div>
 
     <header class="top-bar">
       <button id="camera-exit-btn" type="button" class="pill-btn">✕ Exit</button>
@@ -84,7 +83,6 @@
       <p id="remote-waiting-text">Waiting for Camera Phone to join…</p>
     </div>
     <div id="remote-countdown" class="countdown-overlay hidden"></div>
-    <div id="remote-flash" class="flash-overlay"></div>
 
     <header class="top-bar">
       <button id="remote-exit-btn" type="button" class="pill-btn">✕ Exit</button>
@@ -143,7 +141,7 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=5"></script>
 </body>
 
 </html>
