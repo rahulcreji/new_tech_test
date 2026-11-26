@@ -52,6 +52,7 @@
   const photoModal = document.getElementById("photo-modal");
   const modalCounter = document.getElementById("modal-counter");
   const modalAddBtn = document.getElementById("modal-add-btn");
+  const modalDownloadAllBtn = document.getElementById("modal-download-all-btn");
   const modalImage = document.getElementById("modal-image");
   const modalStrip = document.getElementById("modal-strip");
   const modalDownloadBtn = document.getElementById("modal-download-btn");
@@ -121,22 +122,7 @@
   }
 
   function playShutterSound() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(900, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.25, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.09);
-    } catch {
-      // Audio playback may be blocked if user hasn't interacted yet
-    }
+    // Intentionally silent on both devices
   }
 
   function renderModalPhoto() {
@@ -146,6 +132,10 @@
 
     modalCounter.textContent = `${selectedPhotoIndex + 1} / ${capturedPhotos.length}`;
     modalImage.src = item.url;
+
+    const showDownloads = currentRole === "remote";
+    modalDownloadBtn.style.display = showDownloads ? "inline-flex" : "none";
+    modalDownloadAllBtn.style.display = showDownloads && capturedPhotos.length > 1 ? "inline-flex" : "none";
     modalDownloadBtn.href = item.url;
     modalDownloadBtn.download = item.filename;
 
@@ -300,8 +290,9 @@
     localStream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: facingMode },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        aspectRatio: { ideal: 4 / 3 },
+        width: { ideal: 1600 },
+        height: { ideal: 1200 },
       },
       audio: false,
     });
@@ -319,6 +310,7 @@
         step: caps.zoom.step ?? 0.1,
         value: caps.zoom.min ?? 1,
       };
+      await applyCameraZoom(cameraZoomState.min);
     } else {
       cameraZoomState = { hardware: false, min: 1, max: 4, step: 0.1, value: 1 };
     }
@@ -501,7 +493,6 @@
 
     const fullUrl = URL.createObjectURL(fullBlob);
     updateLastPhoto(fullUrl, filename);
-    triggerDownload(fullUrl, filename);
     showToast("Photo captured!");
 
     // Send a compressed preview copy over DataChannel so wife's phone can see & save it
@@ -650,7 +641,7 @@
           const url = URL.createObjectURL(blob);
           updateLastPhoto(url, incomingPhotoChunks.filename);
           incomingPhotoChunks = null;
-          showToast("Photo saved on Pixel 8!");
+          showToast("Photo received!");
         }
       } catch {
         // Ignore malformed control messages
@@ -874,6 +865,14 @@
   modalAddBtn.addEventListener("click", () => {
     photoModal.classList.add("hidden");
     showToast("Ready to capture next image");
+  });
+  modalDownloadAllBtn.addEventListener("click", async () => {
+    if (currentRole !== "remote" || capturedPhotos.length === 0) return;
+    showToast(`Downloading ${capturedPhotos.length} photos…`);
+    for (const item of capturedPhotos) {
+      triggerDownload(item.url, item.filename);
+      await new Promise((r) => setTimeout(r, 180));
+    }
   });
   modalCloseBtn.addEventListener("click", () => photoModal.classList.add("hidden"));
   photoModal.querySelector(".modal-backdrop").addEventListener("click", () => {
