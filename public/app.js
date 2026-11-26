@@ -446,8 +446,6 @@
 
   async function captureAndSendPhoto() {
     if (!localStream) return;
-    triggerFlash(cameraFlash);
-    playShutterSound();
 
     const filename = `live-shutter-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
     let fullBlob = null;
