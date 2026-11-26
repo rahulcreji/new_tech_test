@@ -62,9 +62,10 @@
     </header>
 
     <footer class="bottom-bar camera-controls">
-      <button id="camera-gallery-btn" type="button" class="thumb-btn empty" title="Last photo">
+      <button id="camera-gallery-btn" type="button" class="thumb-btn empty" title="View captured photos">
         <img id="camera-thumb" alt="Last captured photo" />
         <span class="thumb-placeholder">🖼️</span>
+        <span id="camera-count-badge" class="count-badge hidden">0</span>
       </button>
 
       <button id="camera-local-snap-btn" type="button" class="shutter-btn small" title="Take photo locally">
@@ -103,9 +104,10 @@
       </div>
 
       <footer class="bottom-bar remote-controls">
-        <button id="remote-gallery-btn" type="button" class="thumb-btn empty" title="View last photo">
+        <button id="remote-gallery-btn" type="button" class="thumb-btn empty" title="View captured photos">
           <img id="remote-thumb" alt="Last captured photo" />
           <span class="thumb-placeholder">🖼️</span>
+          <span id="remote-count-badge" class="count-badge hidden">0</span>
         </button>
 
         <button id="remote-snap-btn" type="button" class="shutter-btn" disabled title="Click to capture photo (Space)">
@@ -121,11 +123,16 @@
   <div id="photo-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <img id="modal-image" alt="Captured photo preview" />
-      <div class="modal-actions">
-        <a id="modal-download-btn" class="btn-primary" download="live-shutter.jpg">Save Photo</a>
-        <button id="modal-close-btn" type="button" class="btn-secondary">Close</button>
+      <div class="modal-header">
+        <span id="modal-counter" class="modal-counter">1 / 1</span>
+        <div class="modal-actions">
+          <button id="modal-add-btn" type="button" class="btn-secondary btn-compact" title="Add another image">+ Add Image</button>
+          <a id="modal-download-btn" class="icon-btn primary" download="live-shutter.jpg" title="Download photo" aria-label="Download photo">⬇</a>
+          <button id="modal-close-btn" type="button" class="icon-btn" title="Cancel / Close" aria-label="Close">✕</button>
+        </div>
       </div>
+      <img id="modal-image" alt="Captured photo preview" />
+      <div id="modal-strip" class="modal-strip"></div>
     </div>
   </div>
 

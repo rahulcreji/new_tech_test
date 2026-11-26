@@ -45,8 +45,14 @@
   const zoomOutBtn = document.getElementById("zoom-out-btn");
   const zoomLabel = document.getElementById("zoom-label");
 
+  const cameraCountBadge = document.getElementById("camera-count-badge");
+  const remoteCountBadge = document.getElementById("remote-count-badge");
+
   const photoModal = document.getElementById("photo-modal");
+  const modalCounter = document.getElementById("modal-counter");
+  const modalAddBtn = document.getElementById("modal-add-btn");
   const modalImage = document.getElementById("modal-image");
+  const modalStrip = document.getElementById("modal-strip");
   const modalDownloadBtn = document.getElementById("modal-download-btn");
   const modalCloseBtn = document.getElementById("modal-close-btn");
   const toastEl = document.getElementById("toast");
@@ -65,7 +71,8 @@
   let pingInterval = null;
   let timerSeconds = 0;
   let isCountingDown = false;
-  let lastPhotoUrl = null;
+  let capturedPhotos = []; // [{ url, filename }]
+  let selectedPhotoIndex = 0;
   let incomingPhotoChunks = null;
   let cameraZoomState = { hardware: false, min: 1, max: 5, step: 0.1, value: 1 };
 
@@ -129,20 +136,51 @@
     }
   }
 
+  function renderModalPhoto() {
+    if (capturedPhotos.length === 0) return;
+    selectedPhotoIndex = Math.max(0, Math.min(selectedPhotoIndex, capturedPhotos.length - 1));
+    const item = capturedPhotos[selectedPhotoIndex];
+
+    modalCounter.textContent = `${selectedPhotoIndex + 1} / ${capturedPhotos.length}`;
+    modalImage.src = item.url;
+    modalDownloadBtn.href = item.url;
+    modalDownloadBtn.download = item.filename;
+
+    modalStrip.innerHTML = "";
+    capturedPhotos.forEach((photo, idx) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `modal-strip-item${idx === selectedPhotoIndex ? " active" : ""}`;
+      btn.title = `Photo ${idx + 1}`;
+      const img = document.createElement("img");
+      img.src = photo.url;
+      img.alt = `Photo ${idx + 1}`;
+      btn.appendChild(img);
+      btn.addEventListener("click", () => {
+        selectedPhotoIndex = idx;
+        renderModalPhoto();
+      });
+      modalStrip.appendChild(btn);
+    });
+  }
+
   function updateLastPhoto(blobUrl, filename = `live-shutter-${Date.now()}.jpg`) {
-    if (lastPhotoUrl && lastPhotoUrl !== blobUrl) {
-      URL.revokeObjectURL(lastPhotoUrl);
-    }
-    lastPhotoUrl = blobUrl;
+    capturedPhotos.push({ url: blobUrl, filename });
+    selectedPhotoIndex = capturedPhotos.length - 1;
 
     cameraThumb.src = blobUrl;
     cameraGalleryBtn.classList.remove("empty");
+    cameraCountBadge.textContent = String(capturedPhotos.length);
+    cameraCountBadge.classList.remove("hidden");
+
     remoteThumb.src = blobUrl;
     remoteGalleryBtn.classList.remove("empty");
+    remoteCountBadge.textContent = String(capturedPhotos.length);
+    remoteCountBadge.classList.remove("hidden");
 
-    modalImage.src = blobUrl;
-    modalDownloadBtn.href = blobUrl;
-    modalDownloadBtn.download = filename;
+    if (!photoModal.classList.contains("hidden")) {
+      renderModalPhoto();
+    }
   }
 
   function triggerDownload(blobUrl, filename) {
@@ -766,16 +804,33 @@
   });
 
   function openPhotoModal() {
-    if (!lastPhotoUrl) return;
+    if (capturedPhotos.length === 0) return;
+    selectedPhotoIndex = capturedPhotos.length - 1;
+    renderModalPhoto();
     photoModal.classList.remove("hidden");
   }
 
   cameraGalleryBtn.addEventListener("click", openPhotoModal);
   remoteGalleryBtn.addEventListener("click", openPhotoModal);
+  modalAddBtn.addEventListener("click", () => {
+    photoModal.classList.add("hidden");
+    showToast("Ready to capture next image");
+  });
   modalCloseBtn.addEventListener("click", () => photoModal.classList.add("hidden"));
   photoModal.querySelector(".modal-backdrop").addEventListener("click", () => {
     photoModal.classList.add("hidden");
   });
+
+  // Ensure live video keeps playing smoothly when phone rotates to horizontal/landscape
+  const ensureVideoPlaying = () => {
+    if (currentRole === "remote" && remoteVideo.srcObject) {
+      remoteVideo.play().catch(() => {});
+    } else if (currentRole === "camera" && cameraVideo.srcObject) {
+      cameraVideo.play().catch(() => {});
+    }
+  };
+  window.addEventListener("orientationchange", ensureVideoPlaying);
+  window.addEventListener("resize", ensureVideoPlaying);
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && currentRole === "camera") {
