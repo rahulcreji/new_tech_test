@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d12" />
+  <title>Live Shutter — Remote Camera</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+
+<body>
+  <!-- LOBBY VIEW -->
+  <main id="lobby-view" class="view active">
+    <div class="lobby-card">
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">📷</div>
+        <h1>Live Shutter</h1>
+        <p class="subtitle">See live moments on one phone, click from the other.</p>
+      </div>
+
+      <div class="room-box">
+        <label for="room-input">Room Code</label>
+        <div class="room-input-row">
+          <input id="room-input" type="text" maxlength="12" placeholder="e.g. 4829" autocomplete="off"
+            autocapitalize="characters" />
+          <button id="random-room-btn" type="button" class="btn-secondary" title="Generate random code">New</button>
+          <button id="share-link-btn" type="button" class="btn-secondary" title="Copy remote link">Share</button>
+        </div>
+        <p id="lobby-hint" class="hint">Use the same room code on both phones.</p>
+      </div>
+
+      <div class="role-grid">
+        <button id="start-camera-btn" type="button" class="role-card camera-role">
+          <span class="role-emoji">🎥</span>
+          <span class="role-title">Camera Phone</span>
+          <span class="role-desc">Use this phone (Pixel 8) to stream live view &amp; take photos</span>
+        </button>
+
+        <button id="start-remote-btn" type="button" class="role-card remote-role">
+          <span class="role-emoji">👆</span>
+          <span class="role-title">Remote (Phone or Laptop)</span>
+          <span class="role-desc">Watch the live view, zoom in/out &amp; tap Click to capture</span>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- CAMERA VIEW (Pixel 8) -->
+  <section id="camera-view" class="view stage-view">
+    <video id="camera-video" autoplay playsinline muted></video>
+    <div id="camera-flash" class="flash-overlay"></div>
+
+    <header class="top-bar">
+      <button id="camera-exit-btn" type="button" class="pill-btn">✕ Exit</button>
+      <div class="status-pill">
+        <span id="camera-dot" class="dot waiting"></span>
+        <span id="camera-status">Waiting for remote…</span>
+      </div>
+      <div class="room-pill" id="camera-room-badge">ROOM</div>
+    </header>
+
+    <footer class="bottom-bar camera-controls">
+      <button id="camera-gallery-btn" type="button" class="thumb-btn empty" title="Last photo">
+        <img id="camera-thumb" alt="Last captured photo" />
+        <span class="thumb-placeholder">🖼️</span>
+      </button>
+
+      <button id="camera-local-snap-btn" type="button" class="shutter-btn small" title="Take photo locally">
+        <span class="shutter-inner"></span>
+      </button>
+
+      <button id="flip-camera-btn" type="button" class="circle-btn" title="Switch front/back camera">🔄</button>
+    </footer>
+  </section>
+
+  <!-- REMOTE VIEW (Wife's Phone) -->
+  <section id="remote-view" class="view stage-view">
+    <video id="remote-video" autoplay playsinline></video>
+    <div id="remote-waiting-overlay" class="waiting-overlay">
+      <div class="spinner"></div>
+      <p id="remote-waiting-text">Waiting for Camera Phone to join…</p>
+    </div>
+    <div id="remote-countdown" class="countdown-overlay hidden"></div>
+    <div id="remote-flash" class="flash-overlay"></div>
+
+    <header class="top-bar">
+      <button id="remote-exit-btn" type="button" class="pill-btn">✕ Exit</button>
+      <div class="status-pill">
+        <span id="remote-dot" class="dot waiting"></span>
+        <span id="remote-status">Connecting…</span>
+      </div>
+      <div class="room-pill" id="remote-room-badge">ROOM</div>
+    </header>
+
+    <div class="remote-bottom-stack">
+      <div id="zoom-bar" class="zoom-bar">
+        <button id="zoom-out-btn" type="button" class="zoom-step-btn" title="Zoom out (-)">−</button>
+        <input id="zoom-slider" type="range" min="1" max="5" step="0.1" value="1" aria-label="Zoom level" />
+        <button id="zoom-in-btn" type="button" class="zoom-step-btn" title="Zoom in (+)">+</button>
+        <span id="zoom-label" class="zoom-label">1.0×</span>
+      </div>
+
+      <footer class="bottom-bar remote-controls">
+        <button id="remote-gallery-btn" type="button" class="thumb-btn empty" title="View last photo">
+          <img id="remote-thumb" alt="Last captured photo" />
+          <span class="thumb-placeholder">🖼️</span>
+        </button>
+
+        <button id="remote-snap-btn" type="button" class="shutter-btn" disabled title="Click to capture photo (Space)">
+          <span class="shutter-inner"></span>
+        </button>
+
+        <button id="timer-btn" type="button" class="circle-btn timer-pill" title="Self-timer">0s</button>
+      </footer>
+    </div>
+  </section>
+
+  <!-- PHOTO PREVIEW MODAL -->
+  <div id="photo-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <img id="modal-image" alt="Captured photo preview" />
+      <div class="modal-actions">
+        <a id="modal-download-btn" class="btn-primary" download="live-shutter.jpg">Save Photo</a>
+        <button id="modal-close-btn" type="button" class="btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/app.js"></script>
+</body>
+
+</html>

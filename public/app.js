@@ -1,0 +1,796 @@
+(() => {
+  const ICE_SERVERS = [
+    { urls: "stun:stun.cloudflare.com:3478" },
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ];
+
+  // DOM Elements
+  const lobbyView = document.getElementById("lobby-view");
+  const cameraView = document.getElementById("camera-view");
+  const remoteView = document.getElementById("remote-view");
+
+  const roomInput = document.getElementById("room-input");
+  const randomRoomBtn = document.getElementById("random-room-btn");
+  const shareLinkBtn = document.getElementById("share-link-btn");
+  const startCameraBtn = document.getElementById("start-camera-btn");
+  const startRemoteBtn = document.getElementById("start-remote-btn");
+
+  const cameraVideo = document.getElementById("camera-video");
+  const cameraFlash = document.getElementById("camera-flash");
+  const cameraDot = document.getElementById("camera-dot");
+  const cameraStatus = document.getElementById("camera-status");
+  const cameraRoomBadge = document.getElementById("camera-room-badge");
+  const cameraExitBtn = document.getElementById("camera-exit-btn");
+  const cameraLocalSnapBtn = document.getElementById("camera-local-snap-btn");
+  const flipCameraBtn = document.getElementById("flip-camera-btn");
+  const cameraGalleryBtn = document.getElementById("camera-gallery-btn");
+  const cameraThumb = document.getElementById("camera-thumb");
+
+  const remoteVideo = document.getElementById("remote-video");
+  const remoteWaitingOverlay = document.getElementById("remote-waiting-overlay");
+  const remoteWaitingText = document.getElementById("remote-waiting-text");
+  const remoteCountdown = document.getElementById("remote-countdown");
+  const remoteFlash = document.getElementById("remote-flash");
+  const remoteDot = document.getElementById("remote-dot");
+  const remoteStatus = document.getElementById("remote-status");
+  const remoteRoomBadge = document.getElementById("remote-room-badge");
+  const remoteExitBtn = document.getElementById("remote-exit-btn");
+  const remoteSnapBtn = document.getElementById("remote-snap-btn");
+  const timerBtn = document.getElementById("timer-btn");
+  const remoteGalleryBtn = document.getElementById("remote-gallery-btn");
+  const remoteThumb = document.getElementById("remote-thumb");
+  const zoomSlider = document.getElementById("zoom-slider");
+  const zoomInBtn = document.getElementById("zoom-in-btn");
+  const zoomOutBtn = document.getElementById("zoom-out-btn");
+  const zoomLabel = document.getElementById("zoom-label");
+
+  const photoModal = document.getElementById("photo-modal");
+  const modalImage = document.getElementById("modal-image");
+  const modalDownloadBtn = document.getElementById("modal-download-btn");
+  const modalCloseBtn = document.getElementById("modal-close-btn");
+  const toastEl = document.getElementById("toast");
+
+  // State
+  let currentRole = null; // "camera" | "remote"
+  let currentRoom = "";
+  let ws = null;
+  let pc = null;
+  let dataChannel = null;
+  let localStream = null;
+  let facingMode = "environment";
+  let wakeLock = null;
+  let pendingIceCandidates = [];
+  let reconnectTimer = null;
+  let pingInterval = null;
+  let timerSeconds = 0;
+  let isCountingDown = false;
+  let lastPhotoUrl = null;
+  let incomingPhotoChunks = null;
+  let cameraZoomState = { hardware: false, min: 1, max: 5, step: 0.1, value: 1 };
+
+  // Helpers
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove("hidden");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toastEl.classList.add("hidden"), 2500);
+  }
+
+  function generateRoomCode() {
+    return String(Math.floor(1000 + Math.random() * 9000));
+  }
+
+  function sanitizeRoom(val) {
+    return (val || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+  }
+
+  function switchView(name) {
+    lobbyView.classList.remove("active");
+    cameraView.classList.remove("active");
+    remoteView.classList.remove("active");
+    if (name === "lobby") lobbyView.classList.add("active");
+    if (name === "camera") cameraView.classList.add("active");
+    if (name === "remote") remoteView.classList.add("active");
+  }
+
+  function setCameraStatus(text, state = "waiting") {
+    cameraStatus.textContent = text;
+    cameraDot.className = `dot ${state}`;
+  }
+
+  function setRemoteStatus(text, state = "waiting") {
+    remoteStatus.textContent = text;
+    remoteDot.className = `dot ${state}`;
+  }
+
+  function triggerFlash(el) {
+    el.classList.remove("active");
+    void el.offsetWidth;
+    el.classList.add("active");
+  }
+
+  function playShutterSound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(900, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.25, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.09);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.09);
+    } catch {
+      // Audio playback may be blocked if user hasn't interacted yet
+    }
+  }
+
+  function updateLastPhoto(blobUrl, filename = `live-shutter-${Date.now()}.jpg`) {
+    if (lastPhotoUrl && lastPhotoUrl !== blobUrl) {
+      URL.revokeObjectURL(lastPhotoUrl);
+    }
+    lastPhotoUrl = blobUrl;
+
+    cameraThumb.src = blobUrl;
+    cameraGalleryBtn.classList.remove("empty");
+    remoteThumb.src = blobUrl;
+    remoteGalleryBtn.classList.remove("empty");
+
+    modalImage.src = blobUrl;
+    modalDownloadBtn.href = blobUrl;
+    modalDownloadBtn.download = filename;
+  }
+
+  function triggerDownload(blobUrl, filename) {
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+    } catch {
+      // Ignore if wake lock is denied
+    }
+  }
+
+  function releaseWakeLock() {
+    if (wakeLock) {
+      wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+
+  // Signaling WebSocket
+  function connectWebSocket() {
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${proto}//${location.host}/ws?room=${encodeURIComponent(currentRoom)}&role=${currentRole}`;
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      clearInterval(pingInterval);
+      pingInterval = setInterval(() => {
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, 25000);
+    };
+
+    ws.onmessage = async (event) => {
+      let msg;
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+
+      if (msg.type === "pong") return;
+
+      if (currentRole === "camera") {
+        await handleCameraSignal(msg);
+      } else if (currentRole === "remote") {
+        await handleRemoteSignal(msg);
+      }
+    };
+
+    ws.onclose = () => {
+      clearInterval(pingInterval);
+      if (!currentRole) return;
+      if (currentRole === "camera") setCameraStatus("Reconnecting…", "waiting");
+      if (currentRole === "remote") setRemoteStatus("Reconnecting…", "waiting");
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectWebSocket, 2000);
+    };
+  }
+
+  function sendSignal(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+    }
+  }
+
+  // WebRTC Cleanup
+  function closePeerConnection() {
+    if (dataChannel) {
+      dataChannel.close();
+      dataChannel = null;
+    }
+    if (pc) {
+      pc.onicecandidate = null;
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.close();
+      pc = null;
+    }
+    pendingIceCandidates = [];
+  }
+
+  async function flushIceCandidates() {
+    if (!pc || !pc.remoteDescription) return;
+    while (pendingIceCandidates.length > 0) {
+      const candidate = pendingIceCandidates.shift();
+      try {
+        await pc.addIceCandidate(candidate);
+      } catch {
+        // Ignore stale ICE candidates
+      }
+    }
+  }
+
+  // ================= CAMERA ROLE =================
+  async function startCameraStream() {
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+    }
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: facingMode },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      },
+      audio: false,
+    });
+    cameraVideo.srcObject = localStream;
+    applyCameraPreviewTransform();
+
+    // Detect hardware zoom capabilities (supported on Pixel 8 Android Chrome)
+    const videoTrack = localStream.getVideoTracks()[0];
+    const caps = videoTrack?.getCapabilities ? videoTrack.getCapabilities() : {};
+    if (caps.zoom) {
+      cameraZoomState = {
+        hardware: true,
+        min: caps.zoom.min ?? 1,
+        max: caps.zoom.max ?? 8,
+        step: caps.zoom.step ?? 0.1,
+        value: caps.zoom.min ?? 1,
+      };
+    } else {
+      cameraZoomState = { hardware: false, min: 1, max: 4, step: 0.1, value: 1 };
+    }
+    sendZoomCaps();
+
+    // Replace track if WebRTC peer connection is already active
+    if (pc) {
+      const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+      if (sender && videoTrack) {
+        await sender.replaceTrack(videoTrack);
+      }
+    }
+  }
+
+  function applyCameraPreviewTransform() {
+    const mirror = facingMode === "user" ? "scaleX(-1) " : "";
+    const digitalScale = !cameraZoomState.hardware ? `scale(${cameraZoomState.value})` : "";
+    cameraVideo.style.transform = `${mirror}${digitalScale}`.trim() || "none";
+  }
+
+  function sendZoomCaps() {
+    const payload = { type: "zoom-caps", ...cameraZoomState };
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify(payload));
+    } else {
+      sendSignal(payload);
+    }
+  }
+
+  async function applyCameraZoom(value) {
+    const clamped = Math.min(cameraZoomState.max, Math.max(cameraZoomState.min, Number(value) || 1));
+    cameraZoomState.value = clamped;
+
+    if (cameraZoomState.hardware && localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          await videoTrack.applyConstraints({ advanced: [{ zoom: clamped }] });
+        } catch {
+          // Ignore unsupported constraint error
+        }
+      }
+    } else {
+      applyCameraPreviewTransform();
+    }
+  }
+
+  async function createCameraPeerConnection() {
+    closePeerConnection();
+    setCameraStatus("Connecting to remote…", "waiting");
+
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+    dataChannel = pc.createDataChannel("shutter");
+    setupCameraDataChannel(dataChannel);
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sendSignal({ type: "ice", candidate: e.candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      if (pc.connectionState === "connected") {
+        setCameraStatus("Live with remote", "live");
+      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        setCameraStatus("Waiting for remote…", "waiting");
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    sendSignal({ type: "offer", sdp: pc.localDescription });
+  }
+
+  function setupCameraDataChannel(dc) {
+    dc.onopen = () => {
+      setCameraStatus("Live with remote", "live");
+      sendZoomCaps();
+    };
+    dc.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "snap") {
+          captureAndSendPhoto();
+        } else if (msg.type === "zoom") {
+          applyCameraZoom(msg.value);
+        }
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+  }
+
+  async function handleCameraSignal(msg) {
+    if (msg.type === "room-state") {
+      if (msg.peers.includes("remote")) {
+        await createCameraPeerConnection();
+      } else {
+        setCameraStatus("Waiting for remote…", "waiting");
+      }
+    } else if (msg.type === "peer-joined" && msg.role === "remote") {
+      await createCameraPeerConnection();
+    } else if (msg.type === "peer-left" && msg.role === "remote") {
+      closePeerConnection();
+      setCameraStatus("Waiting for remote…", "waiting");
+    } else if (msg.type === "answer" && pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      await flushIceCandidates();
+    } else if (msg.type === "zoom-caps") {
+      applyRemoteZoomCaps(msg);
+    } else if (msg.type === "ice") {
+      if (pc && pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } else {
+        pendingIceCandidates.push(new RTCIceCandidate(msg.candidate));
+      }
+    } else if (msg.type === "snap") {
+      // Fallback over WebSocket if DataChannel isn't open
+      captureAndSendPhoto();
+    } else if (msg.type === "zoom") {
+      applyCameraZoom(msg.value);
+    }
+  }
+
+  async function captureAndSendPhoto() {
+    if (!localStream) return;
+    triggerFlash(cameraFlash);
+    playShutterSound();
+
+    const filename = `live-shutter-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+    let fullBlob = null;
+
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack && "ImageCapture" in window) {
+      try {
+        const imageCapture = new ImageCapture(videoTrack);
+        fullBlob = await imageCapture.takePhoto();
+      } catch {
+        fullBlob = null;
+      }
+    }
+
+    if (!fullBlob) {
+      const vw = cameraVideo.videoWidth || 1280;
+      const vh = cameraVideo.videoHeight || 720;
+      const canvas = document.createElement("canvas");
+      canvas.width = vw;
+      canvas.height = vh;
+      const ctx = canvas.getContext("2d");
+      if (facingMode === "user") {
+        ctx.translate(vw, 0);
+        ctx.scale(-1, 1);
+      }
+      if (!cameraZoomState.hardware && cameraZoomState.value > 1) {
+        const sw = vw / cameraZoomState.value;
+        const sh = vh / cameraZoomState.value;
+        const sx = (vw - sw) / 2;
+        const sy = (vh - sh) / 2;
+        ctx.drawImage(cameraVideo, sx, sy, sw, sh, 0, 0, vw, vh);
+      } else {
+        ctx.drawImage(cameraVideo, 0, 0, vw, vh);
+      }
+      fullBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.94));
+    }
+
+    if (!fullBlob) return;
+
+    const fullUrl = URL.createObjectURL(fullBlob);
+    updateLastPhoto(fullUrl, filename);
+    triggerDownload(fullUrl, filename);
+    showToast("Photo captured!");
+
+    // Send a compressed preview copy over DataChannel so wife's phone can see & save it
+    if (dataChannel && dataChannel.readyState === "open") {
+      sendPhotoOverDataChannel(fullBlob, filename);
+    }
+  }
+
+  async function sendPhotoOverDataChannel(blob, filename) {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      const maxDim = 1600;
+      const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close();
+
+      const previewBlob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.86));
+      const buffer = await previewBlob.arrayBuffer();
+      const chunkSize = 16384;
+
+      dataChannel.send(JSON.stringify({ type: "photo-start", size: buffer.byteLength, filename }));
+      for (let offset = 0; offset < buffer.byteLength; offset += chunkSize) {
+        dataChannel.send(buffer.slice(offset, offset + chunkSize));
+      }
+      dataChannel.send(JSON.stringify({ type: "photo-end" }));
+    } catch {
+      // Ignore preview transfer errors
+    }
+  }
+
+  // ================= REMOTE ROLE =================
+  function setupRemotePeerConnection() {
+    closePeerConnection();
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+    pc.ontrack = (event) => {
+      remoteVideo.srcObject = event.streams[0];
+      remoteWaitingOverlay.classList.add("hidden");
+      remoteSnapBtn.disabled = false;
+      setRemoteStatus("Live", "live");
+    };
+
+    pc.ondatachannel = (event) => {
+      dataChannel = event.channel;
+      dataChannel.binaryType = "arraybuffer";
+      dataChannel.onmessage = handleRemoteDataMessage;
+    };
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sendSignal({ type: "ice", candidate: e.candidate });
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      if (pc.connectionState === "connected") {
+        setRemoteStatus("Live", "live");
+        remoteSnapBtn.disabled = false;
+      } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+        setRemoteStatus("Connection lost", "error");
+        remoteSnapBtn.disabled = true;
+      }
+    };
+  }
+
+  let remoteZoomHardware = true;
+
+  function applyRemoteZoomCaps(caps) {
+    remoteZoomHardware = Boolean(caps.hardware);
+    zoomSlider.min = String(caps.min ?? 1);
+    zoomSlider.max = String(caps.max ?? 5);
+    zoomSlider.step = String(caps.step ?? 0.1);
+    const val = Number(caps.value ?? caps.min ?? 1);
+    zoomSlider.value = String(val);
+    zoomLabel.textContent = `${val.toFixed(1)}×`;
+    remoteVideo.style.transform = !remoteZoomHardware ? `scale(${val})` : "none";
+  }
+
+  function sendRemoteZoom(val) {
+    const min = Number(zoomSlider.min);
+    const max = Number(zoomSlider.max);
+    const clamped = Math.min(max, Math.max(min, Number(val)));
+    zoomSlider.value = String(clamped);
+    zoomLabel.textContent = `${clamped.toFixed(1)}×`;
+    if (!remoteZoomHardware) {
+      remoteVideo.style.transform = `scale(${clamped})`;
+    }
+    const payload = { type: "zoom", value: clamped };
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify(payload));
+    } else {
+      sendSignal(payload);
+    }
+  }
+
+  function handleRemoteDataMessage(event) {
+    if (typeof event.data === "string") {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "zoom-caps") {
+          applyRemoteZoomCaps(msg);
+        } else if (msg.type === "photo-start") {
+          incomingPhotoChunks = { chunks: [], filename: msg.filename || "live-shutter.jpg" };
+        } else if (msg.type === "photo-end" && incomingPhotoChunks) {
+          const blob = new Blob(incomingPhotoChunks.chunks, { type: "image/jpeg" });
+          const url = URL.createObjectURL(blob);
+          updateLastPhoto(url, incomingPhotoChunks.filename);
+          incomingPhotoChunks = null;
+          showToast("Photo saved on Pixel 8!");
+        }
+      } catch {
+        // Ignore malformed control messages
+      }
+      return;
+    }
+
+    if (incomingPhotoChunks && event.data instanceof ArrayBuffer) {
+      incomingPhotoChunks.chunks.push(event.data);
+    }
+  }
+
+  async function handleRemoteSignal(msg) {
+    if (msg.type === "room-state") {
+      if (msg.peers.includes("camera")) {
+        setRemoteStatus("Connecting to camera…", "waiting");
+        remoteWaitingText.textContent = "Connecting to Camera Phone…";
+      } else {
+        setRemoteStatus("Waiting for camera…", "waiting");
+        remoteWaitingOverlay.classList.remove("hidden");
+        remoteWaitingText.textContent = "Waiting for Camera Phone to join…";
+        remoteSnapBtn.disabled = true;
+      }
+    } else if (msg.type === "peer-joined" && msg.role === "camera") {
+      setRemoteStatus("Camera joined, connecting…", "waiting");
+      remoteWaitingText.textContent = "Camera joined, starting live view…";
+    } else if (msg.type === "peer-left" && msg.role === "camera") {
+      closePeerConnection();
+      remoteVideo.srcObject = null;
+      remoteWaitingOverlay.classList.remove("hidden");
+      remoteWaitingText.textContent = "Camera Phone disconnected. Waiting…";
+      remoteSnapBtn.disabled = true;
+      setRemoteStatus("Waiting for camera…", "waiting");
+    } else if (msg.type === "offer") {
+      setupRemotePeerConnection();
+      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      await flushIceCandidates();
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendSignal({ type: "answer", sdp: pc.localDescription });
+    } else if (msg.type === "zoom-caps") {
+      applyRemoteZoomCaps(msg);
+    } else if (msg.type === "ice") {
+      if (pc && pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+      } else {
+        pendingIceCandidates.push(new RTCIceCandidate(msg.candidate));
+      }
+    }
+  }
+
+  async function triggerRemoteSnap() {
+    if (isCountingDown) return;
+
+    if (timerSeconds > 0) {
+      isCountingDown = true;
+      remoteSnapBtn.disabled = true;
+      remoteCountdown.classList.remove("hidden");
+      for (let i = timerSeconds; i > 0; i--) {
+        remoteCountdown.textContent = String(i);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      remoteCountdown.classList.add("hidden");
+      remoteSnapBtn.disabled = false;
+      isCountingDown = false;
+    }
+
+    triggerFlash(remoteFlash);
+    playShutterSound();
+
+    if (dataChannel && dataChannel.readyState === "open") {
+      dataChannel.send(JSON.stringify({ type: "snap", id: Date.now() }));
+    } else {
+      sendSignal({ type: "snap", id: Date.now() });
+    }
+  }
+
+  // ================= LIFECYCLE & EVENTS =================
+  async function enterRole(role) {
+    const code = sanitizeRoom(roomInput.value);
+    if (code.length < 2) {
+      showToast("Enter at least 2 characters for Room Code");
+      return;
+    }
+    currentRoom = code;
+    roomInput.value = code;
+    currentRole = role;
+
+    if (role === "camera") {
+      cameraRoomBadge.textContent = code;
+      switchView("camera");
+      setCameraStatus("Starting camera…", "waiting");
+      try {
+        await startCameraStream();
+        await requestWakeLock();
+        setCameraStatus("Waiting for remote…", "waiting");
+        connectWebSocket();
+      } catch (err) {
+        showToast("Camera permission denied or unavailable");
+        exitToLobby();
+      }
+    } else {
+      remoteRoomBadge.textContent = code;
+      remoteWaitingOverlay.classList.remove("hidden");
+      remoteSnapBtn.disabled = true;
+      switchView("remote");
+      setRemoteStatus("Connecting…", "waiting");
+      connectWebSocket();
+    }
+  }
+
+  function exitToLobby() {
+    currentRole = null;
+    clearTimeout(reconnectTimer);
+    clearInterval(pingInterval);
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+    closePeerConnection();
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+      localStream = null;
+    }
+    cameraVideo.srcObject = null;
+    remoteVideo.srcObject = null;
+    releaseWakeLock();
+    switchView("lobby");
+  }
+
+  randomRoomBtn.addEventListener("click", () => {
+    roomInput.value = generateRoomCode();
+  });
+
+  shareLinkBtn.addEventListener("click", async () => {
+    const code = sanitizeRoom(roomInput.value) || generateRoomCode();
+    roomInput.value = code;
+    const shareUrl = `${location.origin}/?room=${encodeURIComponent(code)}&role=remote`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Live Shutter Remote", url: shareUrl });
+        return;
+      } catch {
+        // Fallback to clipboard
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast("Remote link copied!");
+    } catch {
+      showToast(`Room code: ${code}`);
+    }
+  });
+
+  startCameraBtn.addEventListener("click", () => enterRole("camera"));
+  startRemoteBtn.addEventListener("click", () => enterRole("remote"));
+  cameraExitBtn.addEventListener("click", exitToLobby);
+  remoteExitBtn.addEventListener("click", exitToLobby);
+
+  flipCameraBtn.addEventListener("click", async () => {
+    facingMode = facingMode === "environment" ? "user" : "environment";
+    try {
+      await startCameraStream();
+    } catch {
+      showToast("Could not switch camera");
+    }
+  });
+
+  cameraLocalSnapBtn.addEventListener("click", captureAndSendPhoto);
+  remoteSnapBtn.addEventListener("click", triggerRemoteSnap);
+
+  zoomSlider.addEventListener("input", () => sendRemoteZoom(zoomSlider.value));
+  zoomInBtn.addEventListener("click", () => sendRemoteZoom(Number(zoomSlider.value) + 0.5));
+  zoomOutBtn.addEventListener("click", () => sendRemoteZoom(Number(zoomSlider.value) - 0.5));
+
+  // Laptop keyboard shortcuts when acting as Remote
+  document.addEventListener("keydown", (e) => {
+    if (currentRole !== "remote" || !photoModal.classList.contains("hidden")) return;
+    if (e.code === "Space" || e.code === "Enter") {
+      if (!remoteSnapBtn.disabled) {
+        e.preventDefault();
+        triggerRemoteSnap();
+      }
+    } else if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      sendRemoteZoom(Number(zoomSlider.value) + 0.5);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      sendRemoteZoom(Number(zoomSlider.value) - 0.5);
+    }
+  });
+
+  timerBtn.addEventListener("click", () => {
+    const cycle = [0, 3, 5];
+    timerSeconds = cycle[(cycle.indexOf(timerSeconds) + 1) % cycle.length];
+    timerBtn.textContent = `${timerSeconds}s`;
+  });
+
+  function openPhotoModal() {
+    if (!lastPhotoUrl) return;
+    photoModal.classList.remove("hidden");
+  }
+
+  cameraGalleryBtn.addEventListener("click", openPhotoModal);
+  remoteGalleryBtn.addEventListener("click", openPhotoModal);
+  modalCloseBtn.addEventListener("click", () => photoModal.classList.add("hidden"));
+  photoModal.querySelector(".modal-backdrop").addEventListener("click", () => {
+    photoModal.classList.add("hidden");
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && currentRole === "camera") {
+      requestWakeLock();
+    }
+  });
+
+  // Init from URL query params (?room=4829&role=remote)
+  const params = new URLSearchParams(location.search);
+  const urlRoom = sanitizeRoom(params.get("room"));
+  const urlRole = params.get("role");
+  roomInput.value = urlRoom || generateRoomCode();
+
+  if (urlRoom && (urlRole === "camera" || urlRole === "remote")) {
+    enterRole(urlRole);
+  }
+})();
+
